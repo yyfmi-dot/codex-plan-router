@@ -21,3 +21,11 @@
 ## 0.1.x — local prototype
 
 - Standalone local router, setup/manage Codex skills, API standby, and backed-up history migration.
+
+## Post-release acceptance — 2026-11-18
+
+- Real already-exhausted Plan to Plan/API failover passed through the native client, preserving model and same-thread synthetic context.
+- The published macOS share ZIP passed 18 core installation checks on a fresh Apple Silicon macOS 15.8.2 hosted VM.
+- Added opt-in real inference and credential-free clean installation harnesses, redacted reports, and a manual CI workflow.
+- Browser quarantine approval, interactive first login, signing/notarization, natural depletion transitions, and reset recovery remain separate open gates.
+- Release ZIPs are unchanged; their recorded checksums still identify the exact installer accepted by the hosted run.

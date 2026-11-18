@@ -34,6 +34,6 @@ Plan/API 切换在网关内，Codex 始终使用 custom，因此不随账号更�
 
 不使用 CC Switch 时可显式运行 router.py setup --source local，使用独立 OAuth/API 页面；此模式需要退出同目录 CC Switch 以避免配置写入冲突。改变凭据来源前先恢复当前路由。
 
-运行目录默认 ~/.local/share/codex-plan-router，目录 0700、私有文件 0600。CLIProxyAPI 8.0.76 按官方 release 固定 SHA-256 下载；TOMLKit 0.13.3 随插件分发，保留 MIT 许可证。实际额度耗尽的端到端切换尚未验收，模拟调度检查与真实推理检查分开报告。
+运行目录默认 ~/.local/share/codex-plan-router，目录 0700、私有文件 0600。CLIProxyAPI 8.0.76 按官方 release 固定 SHA-256 下载；TOMLKit 0.13.3 随插件分发，保留 MIT 许可证。实际额度耗尽的端到端切换尚未验收，模拟调度、真实回退和全新 macOS 虚拟机安装检查分开报告。
 
 模型列表以 MIT 许可的 CLIProxyAPI 内置目录启动；首次启动即尝试更新，此后每 3 小时检查更新，也可点击「更新可选模型」。有效目录保存在本机，更新失败继续使用上次版本。启用时 CC Switch 会将包含多个模型的目录交给 Codex，之后用户可在 Codex 中切换模型；账号和 Plan/API 切换保持请求模型。gpt-6.2-sol 等新模型需要成功更新目录后才可选择。真实推理验证与验收边界见项目 docs/verification.md。

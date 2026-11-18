@@ -8,8 +8,10 @@ The first release is a public beta for local, individual macOS workflows.
 - [x] User model choice and gpt-6.2-sol Plan/API canary in the local prototype
 - [x] Native model-picker and plugin-loader checks with CLI 0.167 / 0.169
 - [x] Restore paths, native writer leases, catalog rollback, and redacted source audit
-- [ ] Real quota-exhaustion and recovery acceptance with explicit test accounts
-- [ ] Independent clean-Mac installer acceptance
+- [x] Real already-exhausted Plan to Plan/API failover with authorized credentials
+- [ ] Natural quota depletion and reset recovery observation
+- [x] Published installer on a fresh Apple Silicon macOS 15.8.2 hosted VM (18 checks)
+- [ ] Browser quarantine approval and interactive first login on a physical Mac
 - [ ] Developer ID signing and Apple notarization
 - [ ] English settings UI and localized diagnostics
 - [ ] Intel macOS companion, then evaluate other desktop platforms

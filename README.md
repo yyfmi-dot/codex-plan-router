@@ -66,7 +66,9 @@ Standalone mode is also available with `setup --source local`. It creates indepe
 
 The local prototype was exercised with Codex CLI 0.167 and 0.169, including native plugin discovery and model-picker responses. Real `gpt-6.2-sol` requests completed with a subscription-only first turn and an explicitly API-only continuation of the same thread. Model and reasoning settings were preserved during activation.
 
-Automatic exhaustion/cooldown scenarios were validated using a local simulated upstream. **A real account-exhaustion end-to-end test has not been completed.** Cross-account encrypted reasoning context may be incompatible. Requests already producing output are not replayed through another account. Intel, Windows, Linux desktop installation, Apple notarization, per-project routing policies, and spend ceilings are not shipped in this beta. See [verification](docs/verification.md).
+Real failover was verified on 2026-11-18 using already-exhausted Plan credentials: native same-thread continuations automatically completed through another Plan and through an official API key. The engine recorded real quota errors and OAuth/API outcomes while preserving `gpt-6.2-sol` and the context marker. Natural depletion transitions and quota-reset recovery remain untested. Cross-account encrypted reasoning context may be incompatible. Requests already producing output are not replayed through another account. Intel, Windows, Linux desktop installation, Apple notarization, per-project routing policies, and spend ceilings are not shipped in this beta. See [verification](docs/verification.md).
+
+A fresh Apple Silicon macOS 15.8.2 VM passed all 18 core installer checks using the published ZIP and official CLI 0.169.0, including bridge/service startup, native plugin loading, repeat installation, and uninstall. Browser-quarantine approval and interactive first login remain untested; Gatekeeper assessment rejects the current ad-hoc-signed App.
 
 ## Build and contribute
 

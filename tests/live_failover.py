@@ -6,6 +6,7 @@ changes. All reports use aliases; no identifiers or raw upstream bodies.
 """
 from pathlib import Path
 from datetime import datetime, timezone
+from unittest import mock
 import concurrent.futures
 import hashlib
 import json
@@ -87,8 +88,17 @@ def run():
                     'access_token': lease['access_token'], 'id_token': lease.get('id_token'),
                     'expired': datetime.fromtimestamp(lease['expires_at'], timezone.utc).isoformat(),
                     'last_refresh': lease['last_refresh'], 'priority': 200-i*10, 'disabled': False})
-            process = engine.start(store)
-            engine.management(store, "config/observability/usage/usage-statistics-enabled", True, "PUT")
+            # Enable telemetry in the initial isolated config, before the engine
+            # starts. A live PUT can race the startup file watcher and lose
+            # records. All routing fields still come from the production owner.
+            production_render = engine.render
+            def render_with_test_telemetry(target_store):
+                production_render(target_store)
+                config = read(target_store.config_path)
+                config['observability']['usage']['usage-statistics-enabled'] = True
+                save(target_store.config_path, config)
+            with mock.patch('cpr.engine.render', side_effect=render_with_test_telemetry):
+                process = engine.start(store)
             for _ in range(100):
                 if model in catalog.model_ids(store):
                     break
@@ -153,7 +163,7 @@ def run():
                         'real_exhausted_credentials_attempted':len(failed)==len(plans)-(0 if with_api else 1) and all(x['failed']>0 for x in failed),
                         'real_quota_error_observed':all(x['quota_rejected'] for x in failed),
                         'destination_succeeded':api_success if with_api else stats.get(destination,{}).get('success',0)>0,
-                        'model_preserved':any(not x.get('failed') and x.get('model')==model for x in usage)}
+                        'model_preserved':any(not x.get('failed') and x.get('model')==model and x.get('response_model')==model for x in usage)}
                 report[name]={'checks':checks,'seconds':result['seconds'],'credentials':stats,'client_errors':result['errors'],'usage':evidence}
                 print(json.dumps({'case':name,'checks':checks,'seconds':result['seconds']}),flush=True)
             finally: stop(process)

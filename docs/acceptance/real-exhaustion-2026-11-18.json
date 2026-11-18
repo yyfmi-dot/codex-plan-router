@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "model": "gpt-6.2-sol",
+  "method": "real upstream quota and native client; isolated eligible sets",
+  "exhausted_plans_available": 2,
+  "exhausted_plan_used_percent": [
+    100
+  ],
+  "quota_transition_observed": false,
+  "scope": "pre-exhausted accounts; natural reset recovery not observed",
+  "codex_cli": "codex-cli 0.169.0-alpha.11.1",
+  "initial_plan_turn": {
+    "complete": true,
+    "seconds": 8.42
+  },
+  "plan_to_plan": {
+    "checks": {
+      "native_turn_completed": true,
+      "same_thread_context_retained": true,
+      "real_exhausted_credentials_attempted": true,
+      "real_quota_error_observed": true,
+      "destination_succeeded": true,
+      "model_preserved": true
+    },
+    "seconds": 6.38,
+    "credentials": {
+      "available-plan.json": {
+        "success": 1,
+        "failed": 0,
+        "quota_rejected": false,
+        "unavailable": false,
+        "quota": {},
+        "model_quota_count": 1
+      },
+      "exhausted-a.json": {
+        "success": 0,
+        "failed": 1,
+        "quota_rejected": true,
+        "unavailable": true,
+        "quota": {},
+        "model_quota_count": 1
+      }
+    },
+    "client_errors": [],
+    "usage": [
+      {
+        "auth_type": "oauth",
+        "model": "gpt-6.2-sol",
+        "failed": true,
+        "response_model": null
+      },
+      {
+        "auth_type": "oauth",
+        "model": "gpt-6.2-sol",
+        "failed": false,
+        "response_model": "gpt-6.2-sol"
+      }
+    ]
+  },
+  "plan_to_api": {
+    "checks": {
+      "native_turn_completed": true,
+      "same_thread_context_retained": true,
+      "real_exhausted_credentials_attempted": true,
+      "real_quota_error_observed": true,
+      "destination_succeeded": true,
+      "model_preserved": true
+    },
+    "seconds": 7.82,
+    "credentials": {
+      "exhausted-a.json": {
+        "success": 0,
+        "failed": 1,
+        "quota_rejected": true,
+        "unavailable": true,
+        "quota": {},
+        "model_quota_count": 1
+      },
+      "exhausted-b.json": {
+        "success": 0,
+        "failed": 1,
+        "quota_rejected": true,
+        "unavailable": true,
+        "quota": {},
+        "model_quota_count": 1
+      }
+    },
+    "client_errors": [],
+    "usage": [
+      {
+        "auth_type": "oauth",
+        "model": "gpt-6.2-sol",
+        "failed": true,
+        "response_model": null
+      },
+      {
+        "auth_type": "oauth",
+        "model": "gpt-6.2-sol",
+        "failed": true,
+        "response_model": null
+      },
+      {
+        "auth_type": "apikey",
+        "model": "gpt-6.2-sol",
+        "failed": false,
+        "response_model": "gpt-6.2-sol"
+      }
+    ]
+  },
+  "user_configuration_unchanged": true,
+  "passed": true,
+  "tested_at": "2026-11-18",
+  "router_release": "0.3.0-beta.1",
+  "engine_version": "8.0.76"
+}
