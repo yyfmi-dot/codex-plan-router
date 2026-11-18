@@ -1,0 +1,35 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "codex-plan-router",
+  "version": "0.3.0-beta.1",
+  "description": "Local Codex routing with CC Switch integration, model choice, API standby, and shared conversation history.",
+  "author": {
+    "name": "Rex",
+    "url": "https://github.com/yyfmi-dot"
+  },
+  "license": "MIT",
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/setup-router/SKILL.md",
+      "interface": {
+        "displayName": "Codex Plan Router",
+        "shortDescription": "订阅优先、API备用、统一会话历史",
+        "longDescription": "联动 CC Switch 账号和官方 API Key，订阅优先并保持统一对话历史。模型由用户选择，默认沿用现有模型，可更新模型目录。完整联动需配套 App，目前为 Apple Silicon 测试版。",
+        "developerName": "Rex",
+        "category": "Productivity",
+        "capabilities": [
+          "Read",
+          "Write",
+          "Interactive"
+        ],
+        "logo": "./assets/icon.svg",
+        "composerIcon": "./assets/icon.svg",
+        "defaultPrompt": [
+          "帮我初始化 Codex Plan Router，打开本机账号设置。",
+          "检查自动切换和历史迁移状态。",
+          "恢复接管前的 Codex 配置。"
+        ]
+      }
+    }
+  }
+}

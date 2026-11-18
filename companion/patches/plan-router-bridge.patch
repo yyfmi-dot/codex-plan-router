@@ -1,0 +1,556 @@
+--- a/src-tauri/Cargo.toml
++++ b/src-tauri/Cargo.toml
+@@ -20,6 +20,7 @@
+ [features]
+ default = []
+ test-hooks = []
++plan-router-bridge = []
+ 
+ [build-dependencies]
+ tauri-build = { version = "2.4.0", features = [] }
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -41,6 +41,7 @@
+ mod openclaw_config;
+ mod opencode_config;
+ mod panic_hook;
++mod plan_router_bridge;
+ mod pi_config;
+ mod prompt;
+ mod prompt_files;
+@@ -1413,6 +1414,7 @@
+             }
+ 
+             // 自动更新：开关打开时后台定时检查并下载新版本（装不装由用户确认）
++            #[cfg(not(feature = "plan-router-bridge"))]
+             crate::app_update::spawn_background_loop(app.handle().clone());
+ 
+             // 异常退出恢复 + 代理状态自动恢复
+@@ -1436,6 +1438,15 @@
+                 // 定下各应用的直连 / 代理模式（处理旧版遗留的接管状态），再把代理模式的
+                 // 应用接上。要排在通用配置片段的自动提取之后：它读的是直连的 live。
+                 crate::mode::controller::startup(&state).await;
++                #[cfg(feature = "plan-router-bridge")]
++                {
++                    let bridge_state = (*state).clone();
++                    tauri::async_runtime::spawn(async move {
++                        if let Err(code) = crate::plan_router_bridge::start(bridge_state).await {
++                            log::error!("[PlanRouterBridge] {code}");
++                        }
++                    });
++                }
+                 // #8268 测试版给 agy 装过包装脚本、改过 shell 启动文件，撤掉带标记的部分。
+                 if let Err(e) =
+                     crate::services::provider::agy_direct::migrate_legacy_launcher(&state.db)
+--- a/src-tauri/src/app_update.rs
++++ b/src-tauri/src/app_update.rs
+@@ -75,11 +75,11 @@
+ }
+ 
+ pub fn auto_install_supported() -> bool {
+-    !is_portable() && platform_supports_self_install()
++    !cfg!(feature = "plan-router-bridge") && !is_portable() && platform_supports_self_install()
+ }
+ 
+ fn enabled() -> bool {
+-    crate::settings::get_settings().auto_update_enabled
++    !cfg!(feature = "plan-router-bridge") && crate::settings::get_settings().auto_update_enabled
+ }
+ 
+ fn pending_guard() -> std::sync::MutexGuard<'static, Option<PendingUpdate>> {
+@@ -157,6 +157,9 @@
+ }
+ 
+ pub fn build_updater(app: &AppHandle) -> Result<Updater, String> {
++    if cfg!(feature = "plan-router-bridge") {
++        return Err("CC Switch Plan Router 联动版通过配套安装包更新，请勿覆盖为普通版本。".into());
++    }
+     let builder = app.updater_builder();
+     // Windows 上 updater 以 `msiexec /passive /promptrestart` 安装 MSI。passive 没有模态框、
+     // 未指定重启选项时，安装目录里有文件被占用，Windows Installer 会不经确认直接重启系统
+--- a/src-tauri/src/services/provider/codex_login.rs
++++ b/src-tauri/src/services/provider/codex_login.rs
+@@ -198,6 +198,8 @@
+ /// 目标供应商对 `auth.json` 的要求。
+ #[derive(Debug, Clone, Copy)]
+ pub(crate) enum AuthTarget<'a> {
++    /// The authenticated loopback Plan Router keeps the current native login.
++    PreserveCurrent,
+     /// 直连的第三方：保留登录开关关闭时删掉 `auth.json`。
+     ThirdParty { preserve: bool },
+     /// 代理的第三方路由：不动用户的原生登录（请求凭据由代理注入）。`restore_last`：进入或
+@@ -267,6 +269,7 @@
+     }
+ 
+     let auth = match input.target {
++        AuthTarget::PreserveCurrent => None,
+         AuthTarget::ThirdParty { preserve } => {
+             if let Some(live) = native.filter(|_| !preserve) {
+                 stash.put(live);
+@@ -303,6 +306,8 @@
+ 
+     // 只算 Codex 会拿来登录的东西（OAuth token、API Key 等），Bedrock 凭据和元数据不算。
+     let login_on_disk = match &auth {
++        None if matches!(input.target, AuthTarget::PreserveCurrent) =>
++            input.live.is_some_and(codex_auth_has_openai_account_material),
+         None => native.is_some_and(codex_auth_has_openai_account_material),
+         Some(None) => false,
+         Some(Some(auth)) => codex_auth_has_openai_account_material(auth),
+@@ -398,6 +403,18 @@
+     }
+ 
+     const NOW: i64 = 1_800_000_000;
++
++    #[test]
++    fn linked_router_preserves_the_current_managed_native_login() {
++        let auth = login("managed");
++        let result = plan(AuthInput {
++            live_is_managed: true,
++            ..input(Some(&auth), AuthTarget::PreserveCurrent, ready())
++        });
++        assert!(result.auth.is_none());
++        assert!(result.login_on_disk);
++        assert!(result.stash.is_none());
++    }
+ 
+     /// access_token 换成带 `exp` 的 JWT。
+     fn with_access_exp(mut auth: Value, exp: i64) -> Value {
+--- a/src-tauri/src/services/provider/codex_direct.rs
++++ b/src-tauri/src/services/provider/codex_direct.rs
+@@ -395,6 +395,7 @@
+ 
+ fn auth_target<'a>(goal: &'a AuthGoal, op_name: &str) -> AuthTarget<'a> {
+     match goal {
++        AuthGoal::PreserveCurrent => AuthTarget::PreserveCurrent,
+         AuthGoal::ThirdParty => AuthTarget::ThirdParty {
+             preserve: preserve_login(op_name),
+         },
+@@ -536,6 +537,7 @@
+ /// `auth.json` 的去向（拥有所有权的版本，[`run`] 里转成 `codex_login::AuthTarget`）。
+ #[derive(Debug, Clone)]
+ enum AuthGoal {
++    PreserveCurrent,
+     ThirdParty,
+     /// 代理的第三方路由，或者没有直连供应商：不动原生登录，只清托管账号的登录。
+     KeepNative,
+@@ -614,6 +616,7 @@
+             let auth = match &managed_login {
+                 Some(login) => AuthGoal::Managed(login.clone()),
+                 None if official => AuthGoal::Official(row_auth(provider)),
++                None if crate::plan_router_bridge::owns_provider(provider) => AuthGoal::PreserveCurrent,
+                 None => AuthGoal::ThirdParty,
+             };
+             match &projection.route {
+--- a/src-tauri/src/services/provider/mod.rs
++++ b/src-tauri/src/services/provider/mod.rs
+@@ -5336,6 +5336,68 @@
+ }
+ 
+ impl ProviderService {
++    /// One owner transaction for the companion's route. Uses the same settled
++    /// switch lock and Codex writer as UI card switches; no second file writer.
++    pub(crate) fn activate_plan_router(state: &AppState, mut provider: Provider, backup: &std::path::Path) -> Result<(), AppError> {
++        let _guard = crate::mode::controller::lock_settled_blocking(state, &AppType::Codex)?;
++        if crate::mode::current::is_proxy(&AppType::Codex) {
++            return Err(AppError::Message("cc_direct_mode_required".into()));
++        }
++        if !crate::plan_router_bridge::owns_provider(&provider) {
++            return Err(AppError::Message("invalid_plan_router_card".into()));
++        }
++        // Taking over the same model changes its route, not the user's tuning.
++        // Reuse the Codex writer's canonical model fields, never credentials.
++        let mut row: toml::Value = provider.settings_config["config"].as_str().unwrap_or("")
++            .parse().map_err(|_| AppError::Message("invalid_plan_router_card".into()))?;
++        let live: toml::Value = crate::codex_config::read_codex_config_text()?
++            .parse().map_err(|_| AppError::Message("invalid_live_codex_config".into()))?;
++        if live.get("model") == row.get("model") {
++            let target = row.as_table_mut().ok_or_else(|| AppError::Message("invalid_plan_router_card".into()))?;
++            for key in crate::live::project::codex::ROW_TOP_FIELDS.iter()
++                .chain(crate::live::floor::CODEX_EXCLUSIVE_TOP.iter()).filter(|key| **key != "model") {
++                if let Some(value) = live.get(*key) {
++                    target.insert((*key).to_string(), value.clone());
++                }
++            }
++            for path in crate::live::floor::CODEX_FLOOR_NESTED {
++                let value = path.iter().try_fold(&live, |value, key| value.get(*key));
++                if let Some(value) = value {
++                    let mut cursor = &mut *target;
++                    for key in &path[..path.len() - 1] {
++                        cursor = cursor.entry((*key).to_string())
++                            .or_insert_with(|| toml::Value::Table(Default::default()))
++                            .as_table_mut().ok_or_else(|| AppError::Message("invalid_plan_router_card".into()))?;
++                    }
++                    cursor.insert(path[path.len() - 1].to_string(), value.clone());
++                }
++            }
++            provider.settings_config["config"] = Value::String(toml::to_string(&row)
++                .map_err(|_| AppError::Message("invalid_plan_router_card".into()))?);
++        }
++        let current = crate::mode::controller::direct_provider_id(state, &AppType::Codex)?;
++        if current.as_deref() != Some(provider.id.as_str()) {
++            let previous = current.ok_or_else(|| AppError::Message("previous_provider_missing".into()))?;
++            crate::config::write_json_file_private(backup, &serde_json::json!({"provider_id": previous}))?;
++        }
++        Self::prepare_new_provider(&AppType::Codex, &mut provider)?;
++        state.db.save_provider("codex", &provider)?;
++        let providers = state.db.get_all_providers("codex")?;
++        Self::switch_codex_direct(state, &provider, &providers)?;
++        Ok(())
++    }
++
++    pub(crate) fn restore_plan_router(state: &AppState, owned_id: &str, previous: &str) -> Result<(), AppError> {
++        let _guard = crate::mode::controller::lock_settled_blocking(state, &AppType::Codex)?;
++        if crate::mode::current::is_proxy(&AppType::Codex)
++            || crate::mode::controller::direct_provider_id(state, &AppType::Codex)?.as_deref() != Some(owned_id) {
++            return Err(AppError::Message("route_changed_elsewhere".into()));
++        }
++        let providers = state.db.get_all_providers("codex")?;
++        let provider = providers.get(previous).ok_or_else(|| AppError::Message("previous_provider_missing".into()))?;
++        Self::switch_codex_direct(state, provider, &providers)?;
++        Ok(())
++    }
+     pub(crate) fn managed_codex_oauth_account_id(provider: &Provider) -> Option<String> {
+         provider
+             .meta
+@@ -7371,6 +7433,7 @@
+         // 保留登录关闭时切到第三方要删掉 auth.json。删不掉（只读目录、被占用）不让切换
+         // 失败：配置和指针都已提交，但要让用户看到官方登录还在盘上。
+         if !codex_direct::is_official(provider)
++            && !crate::plan_router_bridge::owns_provider(provider)
+             && !crate::settings::preserve_codex_official_auth_on_switch()
+             && crate::codex_config::get_codex_auth_path().exists()
+         {
+--- /dev/null
++++ b/src-tauri/src/plan_router_bridge.rs
+@@ -0,0 +1,323 @@
++//! Local companion contract. CC Switch owns credentials and native configuration;
++//! the router receives access-only leases and never a refresh token.
++use axum::{
++    extract::{DefaultBodyLimit, Request, State},
++    http::{header, StatusCode},
++    middleware::{self, Next},
++    response::{IntoResponse, Response},
++    routing::{get, post},
++    Json, Router,
++};
++use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
++use serde::Deserialize;
++use serde_json::{json, Value};
++use sha2::{Digest, Sha256};
++use std::{path::PathBuf, sync::Arc};
++use subtle::ConstantTimeEq;
++use tokio::sync::Mutex;
++use crate::{AppState, AppType, Provider, ProviderService};
++
++const PROVIDER_ID: &str = "codex-plan-router-linked";
++const SCHEMA: u32 = 1;
++
++#[derive(Clone)]
++struct Bridge {
++    app: AppState,
++    token: String,
++    host: String,
++    mutation: Arc<Mutex<()>>,
++}
++
++type ResultJson = Result<Json<Value>, (StatusCode, Json<Value>)>;
++fn failure(status: StatusCode, code: &str) -> (StatusCode, Json<Value>) {
++    (status, Json(json!({"error": code})))
++}
++fn internal<E>(_: E) -> (StatusCode, Json<Value>) {
++    failure(StatusCode::CONFLICT, "cc_operation_failed")
++}
++fn directory() -> PathBuf {
++    crate::config::get_app_config_dir().join("plan-router-bridge")
++}
++
++fn valid_endpoint(value: &str) -> bool {
++    url::Url::parse(value).is_ok_and(|url| {
++        url.scheme() == "http" && url.host_str() == Some("127.0.0.1")
++            && url.port().is_some_and(|p| p > 1024)
++            && url.path() == "/v1" && url.query().is_none() && url.fragment().is_none()
++            && url.username().is_empty() && url.password().is_none()
++    })
++}
++fn valid_bearer(value: &str) -> bool {
++    (40..=128).contains(&value.len())
++        && value.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
++}
++
++/// Only our explicit loopback card preserves the managed native login. Ordinary
++/// third-party cards retain upstream CC Switch's existing login policy.
++pub(crate) fn owns_provider(provider: &Provider) -> bool {
++    if !cfg!(feature = "plan-router-bridge") || provider.id != PROVIDER_ID {
++        return false;
++    }
++    let config = provider.settings_config.get("config").and_then(Value::as_str).unwrap_or("");
++    crate::codex_config::extract_codex_base_url(config).is_some_and(|url| valid_endpoint(&url))
++        && crate::codex_config::extract_codex_experimental_bearer_token(config)
++            .is_some_and(|key| valid_bearer(&key))
++}
++
++fn official_key(provider: &Provider) -> Option<String> {
++    if provider.id == PROVIDER_ID { return None; }
++    let config = provider.settings_config.get("config").and_then(Value::as_str).unwrap_or("");
++    // Explicit official API endpoints only: no recursive loopback providers,
++    // third-party API hosts, environment references, or OAuth card snapshots.
++    let base = crate::codex_config::extract_codex_base_url(config)?;
++    if base.trim_end_matches('/') != "https://api.openai.com/v1" { return None; }
++    crate::codex_config::extract_codex_api_key(provider.settings_config.get("auth"), Some(config))
++        .filter(|key| key.starts_with("sk-") && key.len() >= 30)
++}
++
++async fn authorize(State(state): State<Bridge>, request: Request, next: Next) -> Response {
++    let headers = request.headers();
++    let bearer = headers.get(header::AUTHORIZATION).and_then(|x| x.to_str().ok()).unwrap_or("");
++    let expected = format!("Bearer {}", state.token);
++    if headers.contains_key(header::ORIGIN)
++        || headers.get(header::HOST).and_then(|x| x.to_str().ok()) != Some(state.host.as_str()) {
++        return failure(StatusCode::FORBIDDEN, "local_client_required").into_response();
++    }
++    if !bool::from(bearer.as_bytes().ct_eq(expected.as_bytes())) {
++        return failure(StatusCode::UNAUTHORIZED, "bridge_auth_required").into_response();
++    }
++    let mut response = next.run(request).await;
++    response.headers_mut().insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
++    response
++}
++
++async fn catalog(State(state): State<Bridge>) -> ResultJson {
++    let accounts = state.app.codex_oauth_manager.list_accounts().await;
++    let providers = state.app.db.get_all_providers("codex").map_err(internal)?;
++    let mut keys: Vec<_> = providers.values().filter_map(|p| official_key(p).map(|key| {
++        json!({"id": p.id, "label": p.name, "revision": format!("{:x}", Sha256::digest(key)),
++               "order": p.sort_index.unwrap_or(usize::MAX)})
++    })).collect();
++    keys.sort_by_key(|x| (x["order"].as_u64().unwrap_or(u64::MAX), x["id"].as_str().unwrap_or("").to_owned()));
++    let mode = crate::mode::controller::app_mode_view(&state.app, &AppType::Codex).map_err(internal)?;
++    Ok(Json(json!({"schema": SCHEMA, "version": env!("CARGO_PKG_VERSION"),
++        "features": ["native-model-catalog"],
++        "codex_home": crate::codex_config::get_codex_config_dir(),
++        "accounts": accounts.into_iter().map(|a| json!({"id": a.id, "label": a.login,
++            "reauth_required": a.reauth_required, "revision": a.authenticated_at})).collect::<Vec<_>>(),
++        "keys": keys, "route": mode, "linked": mode.mode == "direct" && mode.direct_provider_id.as_deref() == Some(PROVIDER_ID)
++    })))
++}
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct AccountRequest { id: String }
++
++async fn plan_lease(State(state): State<Bridge>, Json(input): Json<AccountRequest>) -> ResultJson {
++    if input.id.len() > 256 { return Err(failure(StatusCode::BAD_REQUEST, "invalid_account")); }
++    let bundle = state.app.codex_oauth_manager.get_valid_token_bundle_for_account(&input.id)
++        .await.map_err(|_| failure(StatusCode::CONFLICT, "account_unavailable"))?;
++    let claims = bundle.access_token.split('.').nth(1)
++        .and_then(|x| URL_SAFE_NO_PAD.decode(x.trim_end_matches('=')).ok())
++        .and_then(|x| serde_json::from_slice::<Value>(&x).ok());
++    let expires = claims.as_ref().and_then(|v| v["exp"].as_i64())
++        .filter(|t| *t > chrono::Utc::now().timestamp() + 15)
++        .ok_or_else(|| failure(StatusCode::CONFLICT, "invalid_access_lease"))?;
++    // Deliberately enumerate fields. Never serialize ManagedTokenBundle.
++    Ok(Json(json!({"id": input.id, "account_id": bundle.chatgpt_account_id,
++        "access_token": bundle.access_token, "id_token": bundle.id_token,
++        "expires_at": expires, "last_refresh": bundle.last_refresh})))
++}
++
++async fn key_lease(State(state): State<Bridge>, Json(input): Json<AccountRequest>) -> ResultJson {
++    let provider = state.app.db.get_provider_by_id(&input.id, "codex").map_err(internal)?
++        .ok_or_else(|| failure(StatusCode::NOT_FOUND, "key_removed"))?;
++    let key = official_key(&provider).ok_or_else(|| failure(StatusCode::NOT_FOUND, "key_removed"))?;
++    Ok(Json(json!({"id": input.id, "key": key, "base_url": "https://api.openai.com/v1"})))
++}
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct ActivateRequest { base_url: String, bearer: String, model: String, codex_home: PathBuf }
++
++async fn activate(State(state): State<Bridge>, Json(input): Json<ActivateRequest>) -> ResultJson {
++    if !valid_endpoint(&input.base_url) || !valid_bearer(&input.bearer)
++        || input.model.is_empty() || input.model.len() > 128
++        || !input.model.bytes().all(|c| c.is_ascii_alphanumeric() || b"-._/".contains(&c)) {
++        return Err(failure(StatusCode::BAD_REQUEST, "invalid_route"));
++    }
++    if input.codex_home.canonicalize().ok() != crate::codex_config::get_codex_config_dir().canonicalize().ok()
++        || !input.codex_home.is_dir() {
++        return Err(failure(StatusCode::CONFLICT, "codex_home_mismatch"));
++    }
++    let _guard = state.mutation.lock().await;
++    tokio::task::spawn_blocking(move || {
++        let mut config = format!("model_provider = \"custom\"\nmodel = {}\n",
++            serde_json::to_string(&input.model).unwrap());
++        // The router owns this derived native catalog, CC Switch owns the config
++        // pointer. Keep all user-selectable models, rather than a single card model.
++        let catalog_path = crate::codex_config::get_codex_config_dir().join("codex-plan-router-models.json");
++        if catalog_path.is_file() {
++            let bytes = std::fs::read(&catalog_path).map_err(internal)?;
++            if bytes.len() > 8 * 1024 * 1024 {
++                return Err(failure(StatusCode::BAD_REQUEST, "invalid_model_catalog"));
++            }
++            let catalog: Value = serde_json::from_slice(&bytes).map_err(internal)?;
++            if !catalog["models"].as_array().is_some_and(|models| !models.is_empty()) {
++                return Err(failure(StatusCode::BAD_REQUEST, "invalid_model_catalog"));
++            }
++            config.push_str(&format!("model_catalog_json = {}\n", serde_json::to_string(&catalog_path).unwrap()));
++        }
++        config.push_str(&format!("[model_providers.custom]\nname = \"Plan Router\"\nbase_url = {}\nwire_api = \"responses\"\nexperimental_bearer_token = {}\nsupports_websockets = false\n",
++            serde_json::to_string(&input.base_url).unwrap(), serde_json::to_string(&input.bearer).unwrap()));
++        let provider = Provider::with_id(PROVIDER_ID.into(), "Plan Router · CC 联动".into(),
++            json!({"config": config, "auth": {}}), None);
++        ProviderService::activate_plan_router(&state.app, provider, &directory().join("route-before.json"))
++            .map_err(route_failure)?;
++        Ok(Json(json!({"activated": true, "restart_required": true})))
++    }).await.map_err(internal)?
++}
++
++async fn restore(State(state): State<Bridge>) -> ResultJson {
++    let _guard = state.mutation.lock().await;
++    tokio::task::spawn_blocking(move || {
++        let backup: Value = crate::config::read_json_file(&directory().join("route-before.json")).map_err(internal)?;
++        let id = backup["provider_id"].as_str().filter(|id| *id != PROVIDER_ID)
++            .ok_or_else(|| failure(StatusCode::CONFLICT, "previous_provider_missing"))?;
++        ProviderService::restore_plan_router(&state.app, PROVIDER_ID, id).map_err(route_failure)?;
++        Ok(Json(json!({"restored": true})))
++    }).await.map_err(internal)?
++}
++
++fn route_failure(error: crate::AppError) -> (StatusCode, Json<Value>) {
++    match error {
++        crate::AppError::Message(code) if matches!(code.as_str(), "cc_direct_mode_required" | "route_changed_elsewhere" | "previous_provider_missing") =>
++            failure(StatusCode::CONFLICT, &code),
++        _ => failure(StatusCode::CONFLICT, "cc_operation_failed"),
++    }
++}
++
++fn router(state: Bridge) -> Router {
++    Router::new().route("/v1/catalog", get(catalog))
++        .route("/v1/lease/plan", post(plan_lease)).route("/v1/lease/key", post(key_lease))
++        .route("/v1/route/activate", post(activate)).route("/v1/route/restore", post(restore))
++        .layer(DefaultBodyLimit::max(16384))
++        .layer(middleware::from_fn_with_state(state.clone(), authorize)).with_state(state)
++}
++
++pub(crate) async fn start(app: AppState) -> Result<(), String> {
++    // Preserve the user's existing startup preference while repointing its
++    // existing CC Switch login item to this companion bundle.
++    if crate::settings::get_settings().launch_on_startup {
++        let _ = crate::auto_launch::enable_auto_launch();
++    }
++    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await.map_err(|_| "bridge_bind_failed")?;
++    let host = listener.local_addr().map_err(|_| "bridge_bind_failed")?.to_string();
++    let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
++    std::fs::create_dir_all(directory()).map_err(|_| "bridge_discovery_failed")?;
++    #[cfg(unix)] {
++        use std::os::unix::fs::PermissionsExt;
++        std::fs::set_permissions(directory(), std::fs::Permissions::from_mode(0o700)).map_err(|_| "bridge_discovery_failed")?;
++    }
++    let discovery = directory().join("connection.json");
++    crate::config::write_json_file_private(&discovery, &json!({"schema": SCHEMA, "host": "127.0.0.1",
++        "port": listener.local_addr().unwrap().port(), "token": token, "pid": std::process::id(),
++        "version": env!("CARGO_PKG_VERSION")})).map_err(|_| "bridge_discovery_failed")?;
++    let result = axum::serve(listener, router(Bridge { app, token, host, mutation: Arc::new(Mutex::new(())) })).await;
++    let _ = std::fs::remove_file(discovery);
++    result.map_err(|_| "bridge_stopped".into())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn local_route_contract_is_narrow() {
++        assert!(valid_endpoint("http://127.0.0.1:4567/v1"));
++        for url in ["https://api.openai.com/v1", "http://localhost:4567/v1", "http://127.0.0.1:80/v1",
++            "http://127.0.0.1:4567/v1?x=1", "http://user@127.0.0.1:4567/v1"] { assert!(!valid_endpoint(url)); }
++        assert!(!valid_bearer(&"x\n".repeat(30)));
++    }
++    #[test]
++    fn third_party_and_recursive_keys_are_excluded() {
++        let provider = |url| Provider::with_id("api".into(), "API".into(), json!({"config":
++            format!("model_provider=\"custom\"\n[model_providers.custom]\nbase_url=\"{url}\""),
++            "auth": {"OPENAI_API_KEY": "sk-test-abcdefghijklmnopqrstuvwxyz123456"}}), None);
++        assert!(official_key(&provider("https://api.openai.com/v1")).is_some());
++        assert!(official_key(&provider("http://127.0.0.1:4567/v1")).is_none());
++        assert!(official_key(&provider("https://elsewhere.test/v1")).is_none());
++    }
++
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    #[serial_test::serial]
++    async fn authenticated_http_leases_and_owner_route_roundtrip() {
++        let _home = crate::test_support::TestHome::new();
++        let app = AppState::new(Arc::new(crate::Database::init().unwrap()));
++        let api = Provider::with_id("api-fixture".into(), "API fixture".into(), json!({
++            "config": "model_provider=\"custom\"\nmodel=\"gpt-6.1-sol\"\nmodel_reasoning_effort=\"xhigh\"\n[model_providers.custom]\nname=\"API\"\nbase_url=\"https://api.openai.com/v1\"\nwire_api=\"responses\"",
++            "auth": {"OPENAI_API_KEY": "sk-test-abcdefghijklmnopqrstuvwxyz123456"}}), None);
++        ProviderService::add_without_switching(&app, AppType::Codex, api).unwrap();
++        let setup_state = app.clone();
++        tokio::task::spawn_blocking(move || ProviderService::switch(&setup_state, AppType::Codex, "api-fixture")).await.unwrap().unwrap();
++        let access = format!("e30.{}.sig", URL_SAFE_NO_PAD.encode(json!({"exp": chrono::Utc::now().timestamp() + 3600}).to_string()));
++        let id_token = crate::codex_config::test_codex_id_token("bridge-user");
++        app.codex_oauth_manager.add_test_account_with_access_token("plan-fixture", &access, Some(&id_token)).await.unwrap();
++        let server = tokio::spawn(start(app.clone()));
++        let discovery = directory().join("connection.json");
++        for _ in 0..100 {
++            if discovery.exists() { break; }
++            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
++        }
++        let connection: Value = crate::config::read_json_file(&discovery).unwrap();
++        #[cfg(unix)] {
++            use std::os::unix::fs::PermissionsExt;
++            assert_eq!(std::fs::metadata(&discovery).unwrap().permissions().mode() & 0o777, 0o600);
++        }
++        let client = reqwest::Client::builder().no_proxy().build().unwrap();
++        let base = format!("http://127.0.0.1:{}", connection["port"]);
++        let token = connection["token"].as_str().unwrap();
++        assert_eq!(client.get(format!("{base}/v1/catalog")).send().await.unwrap().status(), StatusCode::UNAUTHORIZED);
++        assert_eq!(client.get(format!("{base}/v1/catalog")).bearer_auth(token).header("Origin", "https://untrusted.test").send().await.unwrap().status(), StatusCode::FORBIDDEN);
++        assert_eq!(client.get(format!("{base}/v1/catalog")).bearer_auth(token).header("Host", "untrusted.test").send().await.unwrap().status(), StatusCode::FORBIDDEN);
++        let catalog: Value = client.get(format!("{base}/v1/catalog")).bearer_auth(token).send().await.unwrap().json().await.unwrap();
++        assert_eq!(catalog["accounts"][0]["id"], "plan-fixture");
++        assert_eq!(catalog["keys"][0]["id"], "api-fixture");
++        assert!(!catalog.to_string().contains("sk-test-"));
++        let lease: Value = client.post(format!("{base}/v1/lease/plan")).bearer_auth(token).json(&json!({"id": "plan-fixture"})).send().await.unwrap().json().await.unwrap();
++        assert_eq!(lease["access_token"], access);
++        assert!(lease.get("refresh_token").is_none());
++        assert!(!lease.to_string().contains("test-refresh-token"));
++        let key: Value = client.post(format!("{base}/v1/lease/key")).bearer_auth(token).json(&json!({"id": "api-fixture"})).send().await.unwrap().json().await.unwrap();
++        assert!(key["key"].as_str().unwrap().starts_with("sk-test-"));
++        let native = json!({"auth_mode":"chatgpt", "tokens":{"access_token": "native-access", "refresh_token":"native-refresh", "id_token":id_token, "account_id":"plan-fixture"}});
++        crate::config::write_json_file_private(&crate::codex_config::get_codex_auth_path(), &native).unwrap();
++        let native_bytes = std::fs::read(crate::codex_config::get_codex_auth_path()).unwrap();
++        let catalog_path = crate::codex_config::get_codex_config_dir().join("codex-plan-router-models.json");
++        let catalog_models = crate::codex_config::load_codex_bundled_models().unwrap();
++        assert!(catalog_models.len() > 1);
++        crate::config::write_json_file_private(&catalog_path, &json!({"models": catalog_models})).unwrap();
++        let activate = client.post(format!("{base}/v1/route/activate")).bearer_auth(token).json(&json!({
++            "base_url": "http://127.0.0.1:45678/v1", "bearer": "local-fixture-bearer-abcdefghijklmnopqrstuvwxyz123456", "model":"gpt-6.1-sol",
++            "codex_home": crate::codex_config::get_codex_config_dir()})).send().await.unwrap();
++        assert!(activate.status().is_success(), "activation rejected: {}", activate.text().await.unwrap());
++        assert_eq!(std::fs::read(crate::codex_config::get_codex_auth_path()).unwrap(), native_bytes);
++        let config = std::fs::read_to_string(crate::codex_config::get_codex_config_path()).unwrap();
++        assert!(config.contains("127.0.0.1:45678/v1"));
++        assert!(config.contains("model_provider = \"custom\""));
++        assert!(config.contains("codex-plan-router-models.json"));
++        let live: toml::Value = config.parse().unwrap();
++        assert_eq!(live["model_reasoning_effort"].as_str(), Some("xhigh"));
++        let catalog: Value = crate::config::read_json_file(&catalog_path).unwrap();
++        assert!(catalog["models"].as_array().unwrap().len() > 1);
++        let restored = client.post(format!("{base}/v1/route/restore")).bearer_auth(token).send().await.unwrap();
++        assert!(restored.status().is_success());
++        assert_eq!(crate::mode::controller::direct_provider_id(&app, &AppType::Codex).unwrap().as_deref(), Some("api-fixture"));
++        let again = client.post(format!("{base}/v1/route/restore")).bearer_auth(token).send().await.unwrap();
++        assert_eq!(again.status(), StatusCode::CONFLICT);
++        app.codex_oauth_manager.remove_account("plan-fixture").await.unwrap();
++        let removed = client.post(format!("{base}/v1/lease/plan")).bearer_auth(token).json(&json!({"id":"plan-fixture"})).send().await.unwrap();
++        assert_eq!(removed.status(), StatusCode::CONFLICT);
++        server.abort();
++        let _ = server.await;
++    }
++}
+--- /dev/null
++++ b/src-tauri/tauri.plan-router.conf.json
+@@ -0,0 +1,5 @@
++{
++  "productName": "CC Switch Plan Router",
++  "bundle": {"targets": ["app"], "createUpdaterArtifacts": false},
++  "plugins": {"updater": {"endpoints": []}}
++}

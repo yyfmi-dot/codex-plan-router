@@ -1,0 +1,4 @@
+interface:
+  display_name: "设置订阅优先路由"
+  short_description: "联动 CC Switch 账号，准备后台路由并统一 Codex 对话历史"
+  default_prompt: "使用 $setup-router 初始化本机 Codex Plan Router，并打开账号设置页面。"

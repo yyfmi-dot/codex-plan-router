@@ -1,0 +1,4 @@
+interface:
+  display_name: "诊断与恢复路由"
+  short_description: "查看本机切换状态、补迁未占用的历史或恢复接管前的 Codex 配置"
+  default_prompt: "使用 $manage-router 检查当前路由及历史迁移状态，只报告经过验证的结果。"

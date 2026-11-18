@@ -1,0 +1,37 @@
+name: Build macOS companion (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  apple-silicon:
+    runs-on: macos-15
+    env:
+      CARGO_BUILD_JOBS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python scripts/prepare_companion.py
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: companion/cc-switch/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: companion/cc-switch
+      - run: pnpm tauri build --features plan-router-bridge --config src-tauri/tauri.plan-router.conf.json --bundles app --ci
+        working-directory: companion/cc-switch
+      - run: python build_companion.py
+      - run: python build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macOS-beta
+          path: |
+            dist/*-share.zip
+            dist/codex-plan-router-macos-*.zip
+            dist/package-verification.json

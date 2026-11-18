@@ -1,0 +1,13 @@
+{
+  "version": "8.0.76",
+  "assets": {
+    "arm64": {
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/download/v8.0.76/CLIProxyAPI_8.0.76_darwin_aarch64.tar.gz",
+      "sha256": "69acf0b768a62eb13ba19c4fbfa8fece20e7cdcaa8bfaa1f73d45ff2c2754ce7"
+    },
+    "x86_64": {
+      "url": "https://github.com/router-for-me/CLIProxyAPI/releases/download/v8.0.76/CLIProxyAPI_8.0.76_darwin_amd64.tar.gz",
+      "sha256": "3cf94f4c345995c8359c5421ec5c448087cb70402ab7aa5db837c6233d6df710"
+    }
+  }
+}

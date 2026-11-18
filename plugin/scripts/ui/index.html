@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Codex Plan Router</title><link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script></head>
+<body><main>
+<header><span class="badge">本机运行 · macOS</span><h1>Codex Plan Router</h1><p>订阅优先，API 备用。切换账号，保留同一组对话。</p></header>
+<div id="notice" role="status" aria-live="polite"></div>
+<section class="summary"><strong id="connection">正在连接…</strong><span id="current"></span><button id="refresh">刷新</button></section>
+<section><h2>1　账号来源</h2><div id="cc-source" hidden><strong id="cc-connection"></strong><p>在 CC Switch 联动版新增、删除账号或更换官方 API Key 后，这里约 5 秒自动同步。登录与刷新由 CC Switch 管理，无需在这里重新登录。</p></div>
+<div id="local-source"><p>在这里重新授权订阅账号。每份登录由本路由独立刷新；不会复制 Codex 或 CC Switch 的登录令牌。</p>
+<button id="login" class="primary">登录 ChatGPT 订阅账号</button><a id="login-link" target="_blank" rel="noopener noreferrer" hidden>打开登录页面</a><p id="login-state"></p>
+<details><summary>添加官方 API 备用 Key（按用量计费）</summary>
+<form id="key-form"><label>名称<input id="key-label" maxlength="60" placeholder="例如：工作 API" required></label>
+<label>API Key<input id="key-value" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" required></label><button type="submit">保存到本机</button></form>
+<p>Key 只保存在这台电脑，不会出现在 Codex 对话或此页面的状态列表中。</p></details></div><div id="accounts" class="list"></div><div id="keys" class="list"></div></section>
+<section><h2>2　启用自动路由</h2><label>路由策略<select id="mode"><option value="plan-first">订阅优先，全部不可用时使用 API</option><option value="api-only">仅使用 API</option></select></label>
+<label>默认模型<select id="model"><option value="">沿用 Codex 当前模型</option></select></label>
+<button id="models-refresh">更新可选模型</button>
+<p id="model-note"></p><p>联动模式由 CC Switch 写入并恢复连接配置；独立模式由插件备份后写入。已有官方会话会备份后并入 custom 分组；活动会话等关闭后自动补迁。首次启用后重启 Codex。</p>
+<button id="activate" class="primary">启用路由并统一历史</button><p id="history"></p></section>
+<section><h2>3　恢复与停用</h2><p>恢复接管前的连接配置和原官方会话分组。对话正文和启用后新增的消息保留；本路由期间新建的会话仍留在 custom 分组。</p>
+<button id="restore">恢复原配置</button><p>跨账号或跨 API 的加密推理上下文可能不兼容，统一历史不代表所有旧任务都能无损切换。已输出内容后，本路由不会从另一账号重放同一请求。</p></section>
+<footer>0.3.0-beta.1 · 使用 CLIProxyAPI 8.0.76 · 凭据和历史留在本机，模型请求发往你授权的 OpenAI 服务。</footer>
+</main></body></html>

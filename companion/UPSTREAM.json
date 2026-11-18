@@ -1,0 +1,19 @@
+{
+  "project": "CC Switch",
+  "author": "Jason Young",
+  "version": "4.0.34",
+  "source": "https://github.com/farion1231/cc-switch/tree/v4.0.34",
+  "license": "MIT",
+  "companionFeature": "plan-router-bridge",
+  "changes": [
+    "Authenticated loopback account catalog and access-only leases",
+    "Delegate router activation and restore to the existing ProviderService writer",
+    "Preserve native login only on the explicit loopback router card",
+    "Disable stock updater in companion builds, preserve startup preference",
+    "Provide the native Codex model catalog through its existing writer",
+    "Preserve model tuning when taking over the same model"
+  ],
+  "commit": "d243d970af87e13a243b005d6af73d0375050486",
+  "archive_url": "https://codeload.github.com/farion1231/cc-switch/tar.gz/refs/tags/v4.0.34",
+  "archive_sha256": "483ffc4f2cee52e76920036c6458b40110960ca057d6adc293ffe24db27e597a"
+}
