@@ -1,0 +1,8 @@
+{
+  "router_version": "0.3.0-beta.1",
+  "share_url": "https://github.com/yyfmi-dot/codex-plan-router/releases/download/v0.3.0-beta.1/Codex-Plan-Router-macOS-0.3.0-beta.1-share.zip",
+  "share_sha256": "904b2b3c778548e566c352ea1c79806ab0b8a41039b4cae3d7a1f210a9a1ba5f",
+  "cli_version": "0.169.0",
+  "cli_url": "https://github.com/openai/codex/releases/download/rust-v0.169.0/codex-aarch64-apple-darwin.tar.gz",
+  "cli_sha256": "7f4c49c80bae1d0b4e347acfcdf11faa3475d87ae5e65a5eb1261d3c358145ee"
+}

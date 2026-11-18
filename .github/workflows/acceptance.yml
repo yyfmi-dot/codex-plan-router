@@ -1,0 +1,23 @@
+name: Clean macOS release acceptance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fresh-apple-silicon:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install the published release into the fresh VM user
+        run: python tests/clean_macos_install.py --confirm-disposable-runner
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clean-macos-acceptance
+          path: |
+            dist/clean-macos-verification.json
+            dist/install-verification-desktop.json
